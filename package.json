@@ -1,0 +1,46 @@
+{
+  "name": "@abernatskiy/hasura-configuration",
+  "description": "Hasura configuration tool for use in SQD indexers",
+  "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abernatskiy/hasura-configuration.git"
+  },
+  "keywords": [
+    "sqd",
+    "hasura"
+  ],
+  "author": "Anton Bernatskiy (abernatskiy@toha.li)",
+  "bugs": {
+    "url": "https://github.com/abernatskiy/hasura-configuration/issues"
+  },
+  "homepage": "https://github.com/abernatskiy/hasura-configuration#README",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "squid-hasura-configuration": "bin/squid-hasura-configuration",
+    "squid-hasura-configuration-apply": "bin/squid-hasura-configuration-apply",
+    "squid-hasura-configuration-regenerate": "bin/squid-hasura-configuration-regenerate"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "src"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "build": "rm -rf lib && tsc"
+  },
+  "dependencies": {
+    "@subsquid/util-internal": "^3.2.0",
+    "axios": "^1.7.3",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.1.0",
+    "typescript": "^5.5.4"
+  }
+}
