@@ -1,4 +1,5 @@
-import {program} from 'commander'
+import {program} from "commander"
+
 
 program.description('Hasura configuration tool for use with SQD indexers')
 
