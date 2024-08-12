@@ -3,18 +3,20 @@ import axios from "axios"
 import {program} from "commander"
 import {runProgram} from "@subsquid/util-internal"
 //import {registerTsNodeIfRequired} from '@subsquid/util-internal-ts-node'
-import {HASURA_METADATA_API_URL, CONFIG_DIR, hasuraHttpHeaders} from "./common"
+import {HASURA_URL, CONFIG_DIR, hasuraHttpHeaders} from "./common"
 
 runProgram(async () => {
     program.description('Apply all configuration calls').parse()
 
 //    await registerTsNodeIfRequired()
 
-    const queryData: {filename: string, query: string}[] = Array()
+    const queryData: {filename: string, endpoint: string, query: string}[] = Array()
     for (let filename of fs.readdirSync(CONFIG_DIR)) {
         const idx = Number(filename.split('-')[0])
+        const endpoint = '/'.concat(filename.split('-')[1].split('%2F').join('/'))
         queryData[idx] = {
             filename,
+            endpoint,
             query: fs.readFileSync(`${CONFIG_DIR}/${filename}`).toString('utf-8')
         }
     }
@@ -22,7 +24,7 @@ runProgram(async () => {
     for (let qdata of queryData) {
         process.stdout.write(`Applying ${qdata.filename} ... `)
         const res = await axios.post(
-            HASURA_METADATA_API_URL,
+            `${HASURA_URL}${qdata.endpoint}`,
             qdata.query,
             {
                 headers: hasuraHttpHeaders,
