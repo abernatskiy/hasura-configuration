@@ -20,7 +20,7 @@ runProgram(async () => {
     // Required for getMetadataArgsStorage() to work
     const modelPath =
         isTsNode() ?
-        `${process.cwd()}/lib/model/index.ts` :
+        `${process.cwd()}/src/model/index.ts` :
         `${process.cwd()}/lib/model/index.js`
     // @ts-ignore
     const model = await import(modelPath)
