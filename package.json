@@ -1,7 +1,7 @@
 {
   "name": "@abernatskiy/hasura-configuration",
   "description": "Hasura configuration tool for use in SQD indexers",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -34,11 +34,15 @@
     "build": "rm -rf lib && tsc"
   },
   "dependencies": {
+    "@subsquid/typeorm-store": "^1.5.1",
     "@subsquid/util-internal": "^3.2.0",
     "@subsquid/util-internal-code-printer": "^1.2.2",
+    "@subsquid/util-internal-ts-node": "^0.0.0",
+    "@subsquid/util-naming": "^1.3.0",
     "axios": "^1.7.3",
     "commander": "^12.1.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "typeorm": "^0.3.20"
   },
   "devDependencies": {
     "@types/node": "^22.1.0",
