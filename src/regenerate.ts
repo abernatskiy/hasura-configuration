@@ -1,5 +1,4 @@
 import assert from "assert"
-import axios from "axios"
 import {program} from "commander"
 import {getMetadataArgsStorage} from "typeorm"
 import {MetadataArgsStorage} from "typeorm/metadata-args/MetadataArgsStorage"
@@ -10,6 +9,7 @@ import {OutDir} from "@subsquid/util-internal-code-printer"
 import {CONFIG_DIR} from "./common"
 import {registerTsNodeIfRequired, isTsNode} from '@subsquid/util-internal-ts-node'
 
+const HASURA_GRAPHQL_UNAUTHORIZED_ROLE = process.env.HASURA_GRAPHQL_UNAUTHORIZED_ROLE ?? 'public'
 const OUT_FILE_IDX_INCREMENT = 10
 
 runProgram(async () => {
@@ -36,6 +36,7 @@ runProgram(async () => {
 
     outIdx = writeTablesConfiguration(tables, dir, outIdx)
     outIdx = writeRelationshipsConfiguration(relationships, dir, outIdx)
+    outIdx = writeTablesPermissionsConfiguration(tables, dir, outIdx)
 })
 
 
@@ -96,7 +97,7 @@ function typeToTableName(rtype: RelationTypeInFunction): string {
         return toSnakeCase(tableName as string)
     }
     catch (e) {
-        console.error(`Non-callable type returned by TypeORM for a relation`, e, rtype)
+        console.error(`Non-callable type returned by TypeORM for a relation, or the value returned by the call has no "name" field`, e, rtype)
         process.exit(1)
     }
 }
@@ -175,6 +176,31 @@ function writeRelationshipsConfiguration(constraints: RelationshipRecord[], outD
         outIdxLabel = `${startingIdx}`.padStart(5, '0')
         outFileName = `${outIdxLabel}-v1%2Fmetadata-${constraintLabel}-bwd.json`
         outDir.write(outFileName, JSON.stringify(trackBackwardRelationshipQuery, null, 2))
+        startingIdx += OUT_FILE_IDX_INCREMENT
+    }
+    return startingIdx
+}
+
+
+function writeTablesPermissionsConfiguration(tables: string[], outDir: OutDir, startingIdx: number): number {
+    for (let table of tables) {
+        const readTableQuery = {
+            type: 'pg_create_select_permission',
+            args: {
+                source: 'default',
+                table: table,
+                role: HASURA_GRAPHQL_UNAUTHORIZED_ROLE,
+                permission: {
+                    columns: '*',
+                    filter: {},
+                    allow_aggregations: true
+                }
+            }
+        }
+
+        const outIdxLabel = `${startingIdx}`.padStart(5, '0')
+        const outFileName = `${outIdxLabel}-v1%2Fmetadata-${table}-column-permissions.json`
+        outDir.write(outFileName, JSON.stringify(readTableQuery, null, 2))
         startingIdx += OUT_FILE_IDX_INCREMENT
     }
     return startingIdx
