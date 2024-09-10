@@ -1,7 +1,7 @@
 {
   "name": "@subsquid/hasura-configuration",
   "description": "Hasura configuration tool for use in SQD indexers",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
@@ -41,6 +41,7 @@
     "axios": "^1.7.7",
     "commander": "^12.1.0",
     "dotenv": "^16.4.5",
+    "inquirer": "^10.2.2",
     "typeorm": "^0.3.20"
   },
   "devDependencies": {

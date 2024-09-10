@@ -1,21 +1,27 @@
 import assert from "assert"
+import fs from "fs"
 import {program} from "commander"
+import inquirer from "inquirer"
 import {getMetadataArgsStorage} from "typeorm"
 import {MetadataArgsStorage} from "typeorm/metadata-args/MetadataArgsStorage"
 import {RelationTypeInFunction} from "typeorm/metadata/types/RelationTypeInFunction"
 import {runProgram} from "@subsquid/util-internal"
 import {toSnakeCase} from "@subsquid/util-naming"
-import {OutDir} from "@subsquid/util-internal-code-printer"
-import {CONFIG_DIR} from "./common"
-import {registerTsNodeIfRequired, isTsNode} from '@subsquid/util-internal-ts-node'
+import {registerTsNodeIfRequired, isTsNode} from "@subsquid/util-internal-ts-node"
+import {CONFIG_PATH} from "./common"
+import baseHasuraConfig from "./baseConfig.json"
 
 const HASURA_GRAPHQL_UNAUTHORIZED_ROLE = process.env.HASURA_GRAPHQL_UNAUTHORIZED_ROLE ?? 'public'
-const OUT_FILE_IDX_INCREMENT = 10
 
 runProgram(async () => {
-    program.description('Analyze TypeORM models and generate a Hasura configuration that tracks all related tables and foreign key relationships').parse()
+    program.description(`Analyze TypeORM models and generate a Hasura configuration at ${CONFIG_PATH} that tracks all related tables and foreign key relationships`)
+    program.option('-f, --force', `do not prompt before overwriting ${CONFIG_PATH}`, false)
+
+    const {force} = program.parse().opts() as {force: boolean}
 
     await registerTsNodeIfRequired()
+
+    validateBaseConfig(baseHasuraConfig)
 
     // Required for getMetadataArgsStorage() to work
     const modelPath =
@@ -30,14 +36,40 @@ runProgram(async () => {
     const tables: string[] = getTablesData(typeormMetadata)
     const relationships: RelationshipRecord[] = getRelationshipsData(typeormMetadata)
 
-    const dir = new OutDir(CONFIG_DIR)
-    let outIdx = OUT_FILE_IDX_INCREMENT
-    dir.del()
+    let hasuraTables = makeHasuraTablesConfig(tables)
+    hasuraTables = updateHasuraTablesWithRelationshipsConfig(hasuraTables, relationships)
+    hasuraTables = updateHasuraTablesWithPermissionsConfig(hasuraTables)
 
-    outIdx = writeTablesConfiguration(tables, dir, outIdx)
-    outIdx = writeRelationshipsConfiguration(relationships, dir, outIdx)
-    outIdx = writeTablesPermissionsConfiguration(tables, dir, outIdx)
+    let hasuraConfig = baseHasuraConfig as any
+    try {
+        hasuraConfig.metadata.sources[0].tables = hasuraTables
+    }
+    catch (e) {
+        console.error(`Failed to assign the generated config to the default config field`, e)
+        process.exit(1)
+    }
+
+    if (fs.existsSync(CONFIG_PATH) && !force) {
+        const { confirm } = await inquirer.prompt([
+            {
+                name: 'confirm',
+                type: 'confirm',
+                message: `Hasura config file ${CONFIG_PATH} exists. Do you want to overwrite it?`,
+                default: false
+            }
+        ])
+        if (!confirm) process.exit(0)
+    }
+
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(hasuraConfig, null, '  '))
 })
+
+
+function validateBaseConfig(config: any): void {
+    assert(config.metadata !== undefined, `Base config must have a "metadata" field`)
+    assert(Array.isArray(config.metadata.sources), `Base config field "metadata.sources" must be an array`)
+    assert(config.metadata.sources[0].name === 'default', `The first source in the base metadata config must be "default"`)
+}
 
 
 type RelationshipRecord = {
@@ -103,105 +135,91 @@ function typeToTableName(rtype: RelationTypeInFunction): string {
 }
 
 
-function writeTablesConfiguration(tables: string[], outDir: OutDir, startingIdx: number): number {
-    for (let table of tables) {
-        const trackTableQuery = {
-            type: 'pg_track_table',
-            args: {
-                source: 'default',
-                table: table,
-                configuration: {}
-            }
-        }
-
-        const outIdxLabel = `${startingIdx}`.padStart(5, '0')
-        const outFileName = `${outIdxLabel}-v1%2Fmetadata-${table}.json`
-        outDir.write(outFileName, JSON.stringify(trackTableQuery, null, 2))
-        startingIdx += OUT_FILE_IDX_INCREMENT
-    }
-    return startingIdx
+function makeHasuraTablesConfig(tables: string[]): any[] {
+    return tables.map(t => ({table: {name: t, schema: 'public'}}))
 }
 
 
-function writeRelationshipsConfiguration(constraints: RelationshipRecord[], outDir: OutDir, startingIdx: number): number {
-    for (let constraint of constraints) {
-        const constraintLabel = `${constraint.from}-${constraint.field}-${constraint.to}`
-
-        const trackForwardRelationshipQuery = {
-            type: 'pg_create_object_relationship',
-            args: {
-                table: constraint.from,
-                name: constraint.to,
-                source: 'default',
+function updateHasuraTablesWithRelationshipsConfig(hasuraTables: any[], relationships: RelationshipRecord[]): any[] {
+    const arrayRelationships: Map<string, any[]> = new Map()
+    const objectRelationships: Map<string, any[]> = new Map()
+    for (let rel of relationships) {
+        if (rel.oneToOne) {
+            updateArrayMap(objectRelationships, rel.from, {
+                name: rel.to,
                 using: {
-                    foreign_key_constraint_on: constraint.field
+                    foreign_key_constraint_on: rel.field
                 }
-            }
+            })
+            updateArrayMap(objectRelationships, rel.to, {
+                name: rel.from,
+                using: {
+                    foreign_key_constraint_on: {
+                        column: rel.field,
+                        table: {
+                            name: rel.from,
+                            schema: 'public'
+                        }
+                    }
+                }
+            })
         }
-        let outIdxLabel = `${startingIdx}`.padStart(5, '0')
-        let outFileName = `${outIdxLabel}-v1%2Fmetadata-${constraintLabel}-fwd.json`
-        outDir.write(outFileName, JSON.stringify(trackForwardRelationshipQuery, null, 2))
-        startingIdx += OUT_FILE_IDX_INCREMENT
-
-        const trackBackwardRelationshipQuery =
-            constraint.oneToOne ?
-            {
-                type: 'pg_create_object_relationship',
-                args: {
-                    table: constraint.to,
-                    name: constraint.from,
-                    source: 'default',
-                    using: {
-                        foreign_key_constraint_on: {
-                            table: constraint.from,
-                            columns: constraint.field
+        else {
+            updateArrayMap(objectRelationships, rel.from, {
+                name: rel.to,
+                using: {
+                    foreign_key_constraint_on: rel.field
+                }
+            })
+            updateArrayMap(arrayRelationships, rel.to, {
+                name: rel.from.concat('s'),
+                using: {
+                    foreign_key_constraint_on: {
+                        column: rel.field,
+                        table: {
+                            name: rel.from,
+                            schema: 'public'
                         }
                     }
                 }
-            } :
-            {
-                type: 'pg_create_array_relationship',
-                args: {
-                    table: constraint.to,
-                    name: constraint.from.concat('s'),
-                    source: 'default',
-                    using: {
-                        foreign_key_constraint_on: {
-                            table: constraint.from,
-                            columns: constraint.field
-                        }
-                    }
-                }
-            }
-        outIdxLabel = `${startingIdx}`.padStart(5, '0')
-        outFileName = `${outIdxLabel}-v1%2Fmetadata-${constraintLabel}-bwd.json`
-        outDir.write(outFileName, JSON.stringify(trackBackwardRelationshipQuery, null, 2))
-        startingIdx += OUT_FILE_IDX_INCREMENT
+            })
+        }
     }
-    return startingIdx
+
+    return hasuraTables.map(t => {
+        const tname = t.table.name
+        if (arrayRelationships.has(tname)) {
+            t.array_relationships = arrayRelationships.get(tname)
+        }
+        if (objectRelationships.has(tname)) {
+            t.object_relationships = objectRelationships.get(tname)
+        }
+        return t
+    })
 }
 
 
-function writeTablesPermissionsConfiguration(tables: string[], outDir: OutDir, startingIdx: number): number {
-    for (let table of tables) {
-        const readTableQuery = {
-            type: 'pg_create_select_permission',
-            args: {
-                source: 'default',
-                table: table,
+function updateArrayMap<T>(m: Map<string, T[]>, key: string, value: T): void {
+    if (m.has(key)) {
+        m.get(key)!.push(value)
+    }
+    else {
+        m.set(key, [value])
+    }
+}
+
+function updateHasuraTablesWithPermissionsConfig(hasuraTables: any[]): any[] {
+    return hasuraTables.map(t => ({
+        ...t,
+        select_permissions: [
+            {
                 role: HASURA_GRAPHQL_UNAUTHORIZED_ROLE,
                 permission: {
-                    columns: '*',
+                    columns: "*",
                     filter: {},
                     allow_aggregations: true
                 }
             }
-        }
-
-        const outIdxLabel = `${startingIdx}`.padStart(5, '0')
-        const outFileName = `${outIdxLabel}-v1%2Fmetadata-${table}-column-permissions.json`
-        outDir.write(outFileName, JSON.stringify(readTableQuery, null, 2))
-        startingIdx += OUT_FILE_IDX_INCREMENT
-    }
-    return startingIdx
+        ]
+    }))
 }
