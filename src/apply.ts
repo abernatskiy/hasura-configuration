@@ -15,9 +15,10 @@ runProgram(async () => {
     await registerTsNodeIfRequired()
 
     const config: any = JSON.parse(fs.readFileSync(CONFIG_PATH).toString())
+    const hasuraApiUrl: string = `${HASURA_GRAPHQL_ENDPOINT}/v1/metadata`
 
-    const res = await axios.post(
-        `${HASURA_GRAPHQL_ENDPOINT}/v1/metadata`,
+    await axios.post(
+        hasuraApiUrl,
         {
             type: 'replace_metadata',
             version: 2,
@@ -28,14 +29,23 @@ runProgram(async () => {
             validateStatus: () => true
         }
     )
-
-    if (res.status === 200) {
-        console.log('Hasura configuration replaced successfully')
-    }
-    else {
-        console.error(`Got HTTP ${res.status}: ${res.data.error}`)
-        if (res.data.error === 'cannot continue due to inconsistent metadata') {
-            console.error('Hint: this can be caused by database schema not being up to date')
+    .then(res => {
+        if (res.status === 200) {
+            console.log('Hasura configuration replaced successfully')
         }
-    }
+        else {
+            console.error(`Got HTTP ${res.status}: ${res.data.error}`)
+            if (res.data.error === 'cannot continue due to inconsistent metadata') {
+                console.error('Hint: this can be caused by database schema not being up to date')
+            }
+        }
+    })
+    .catch(e => {
+        if (e.code === 'ECONNREFUSED') {
+            console.error(`Could not connect to Hasura at ${hasuraApiUrl}`)
+        }
+        else {
+            console.error(`Unknown Axios error`, e)
+        }
+    })
 })
